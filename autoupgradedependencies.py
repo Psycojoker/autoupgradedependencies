@@ -1,5 +1,6 @@
 import os
 import sys
+import requests
 
 from redbaron import RedBaron
 
@@ -35,6 +36,22 @@ def parse_pkginfo(path):
     return eval(depends.value.dumps())
 
 
+def merge_depends_with_pypi_info(depends):
+    new_depends = {}
+
+    for key, value in depends.items():
+        pkg_name = key.split("[", 1)[0]
+        print("Get all releases of %s..." % pkg_name)
+        data = requests.get("https://pypi.org/pypi/%s/json" % pkg_name).json()
+        new_depends[key] = {
+            "pkg_name": pkg_name,
+            "current_version_scheme": value,
+            "all_versions": data["releases"].keys()
+        }
+
+    return new_depends
+
+
 def main():
     path = "."
     path = os.path.realpath(os.path.expanduser(path))
@@ -50,6 +67,9 @@ def main():
         print("\n* ".join(cubes))
     else:
         print("This cube doesn't depends on other cubes")
+
+    depends = merge_depends_with_pypi_info(depends)
+    print(depends)
 
 
 if __name__ == '__main__':
