@@ -277,6 +277,11 @@ def main():
 
     depends = filter_pkg_that_can_be_upgraded(depends)
 
+    if not depends:
+        print("")
+        print("Nothing to do, everything is up to date")
+        sys.exit(0)
+
     try_to_upgrade_dependencies(args.test_command, depends, pkginfo_path, red, red_depends)
 
 
