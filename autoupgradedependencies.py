@@ -75,7 +75,9 @@ def merge_depends_with_pypi_info(depends):
 
 
 def filter_pkg_that_can_be_upgraded(depends):
+    no_upgrades = []
     new_depends = {}
+
     for key, value in depends.items():
         conditions = parse_conditions(value["current_version_scheme"])
 
@@ -93,11 +95,19 @@ def filter_pkg_that_can_be_upgraded(depends):
         possible_upgrades = list(itertools.dropwhile(lambda x: x <= maximum_version, all_versions_sorted))
 
         if possible_upgrades:
-            print("%s can be upgraded to %s" % (key, ", ".join([x.vstring for x in possible_upgrades])))
             new_depends[key] = value
             new_depends[key]["possible_upgrades"] = possible_upgrades
         else:
-            print("No possible upgrades for %s, drop it" % key)
+            no_upgrades.append(key)
+
+    if no_upgrades:
+        print("Skipped packages that don't need to be upgraded: %s" % (", ".join(no_upgrades)))
+
+    if new_depends:
+        print("")
+        print("Packages that can upgrades with all those available verisons:")
+        for key, value in new_depends.items():
+            print("* %s (%s) to %s" % (key, value["current_version_scheme"], ", ".join(map(lambda x: x.vstring, value["possible_upgrades"]))))
 
     return new_depends
 
