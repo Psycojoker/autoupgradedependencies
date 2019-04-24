@@ -128,6 +128,11 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         with open(pkginfo_path, "w") as pkginfo_file:
             pkginfo_file.write(dumps)
 
+    def hg_commit(key, before, after):
+        hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), max_possible_value)
+        print(hg_commit_command)
+        subprocess.check_call(hg_commit_command, shell=True)
+
     # start with cubes
     for depend_key, depend_data in filter(lambda x: x[0].startswith("cubicweb-"), depends.items()):
         entry = red_depends.value.filter(lambda x: hasattr(x, "key") and x.key.to_python() == depend_key)[0]
@@ -153,10 +158,8 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
         if return_code == 0:
             print("Success for upgrading %s to %s!" % (depend_key, max_possible_value))
+            hg_commit(depend_key, initial_value.to_python(), max_possible_value)
 
-            hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), max_possible_value)
-            print(hg_commit_command)
-            subprocess.check_call(hg_commit_command, shell=True)
         elif len(depend_data["possible_upgrades"]) > 1:
             print("Failure when upgrading %s to %s, switch to version per version strategy" % (depend_key, max_possible_value))
 
@@ -188,9 +191,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
                     change_dependency_version_on_disk(entry, previous_version)
 
-                    hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), version)
-                    print(hg_commit_command)
-                    subprocess.check_call(hg_commit_command, shell=True)
+                    hg_commit(depend_key, initial_value.to_python(), version)
 
                     break
                 else:
@@ -209,9 +210,8 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                 print("Actually it's the last compatible versions before the buggy %s" % max_possible_value)
                 # should already be done
                 # change_dependency_version_on_disk(entry, previous_version)
-                hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), version)
-                print(hg_commit_command)
-                subprocess.check_call(hg_commit_command, shell=True)
+
+                hg_commit(depend_key, initial_value.to_python(), version)
 
         else:
             print("Failure when upgrading %s to %s, fail back to previous value :(" % (depend_key, max_possible_value))
