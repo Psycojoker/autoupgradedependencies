@@ -121,6 +121,13 @@ def parse_conditions(conditions):
 
 
 def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_depends):
+    def change_dependency_version_on_disk(entry, value):
+        entry.value = "'== %s'" % value
+
+        dumps = red.dumps()
+        with open(pkginfo_path, "w") as pkginfo_file:
+            pkginfo_file.write(dumps)
+
     # start with cubes
     for depend_key, depend_data in filter(lambda x: x[0].startswith("cubicweb-"), depends.items()):
         entry = red_depends.value.filter(lambda x: hasattr(x, "key") and x.key.to_python() == depend_key)[0]
@@ -129,13 +136,9 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
         max_possible_value = depend_data["possible_upgrades"][-1].vstring
 
-        entry.value = "'== %s'" % max_possible_value
-
         print("")
         print("Upgrading %s to %s" % (depend_key, max_possible_value))
-        dumps = red.dumps()
-        with open(pkginfo_path, "w") as pkginfo_file:
-            pkginfo_file.write(dumps)
+        change_dependency_version_on_disk(entry, max_possible_value)
 
         print("starting test process '%s'..." % test_command)
         delimiter = "=" * len("starting test process '%s'..." % test_command)
@@ -162,12 +165,9 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             for version in depend_data["possible_upgrades"][:-1]:
                 version = version.vstring
 
-                entry.value = "'== %s'" % version
                 print("")
                 print("trying %s to %s" % (depend_key, version))
-                dumps = red.dumps()
-                with open(pkginfo_path, "w") as pkginfo_file:
-                    pkginfo_file.write(dumps)
+                change_dependency_version_on_disk(entry, version)
 
                 print("starting test process '%s'..." % test_command)
                 delimiter = "=" * len("starting test process '%s'..." % test_command)
@@ -186,11 +186,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                 elif previous_version:
                     print("Failure when upgrading %s to %s, %s is the maximum upgradable version" % (depend_key, version, previous_version))
 
-                    entry.value = "'== %s'" % previous_version
-
-                    dumps = red.dumps()
-                    with open(pkginfo_path, "w") as pkginfo_file:
-                        pkginfo_file.write(dumps)
+                    change_dependency_version_on_disk(entry, previous_version)
 
                     hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), version)
                     print(hg_commit_command)
