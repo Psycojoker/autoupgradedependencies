@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import operator
+import argparse
 import itertools
 import subprocess
 
@@ -223,6 +224,11 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Auto upgrade a cube dependencies that passes tests.')
+    parser.add_argument('test_command', help='test command to launch, for example "tox -e py27"')
+
+    args = parser.parse_args()
+
     path = "."
     path = os.path.realpath(os.path.expanduser(path))
 
@@ -248,9 +254,7 @@ def main():
 
     depends = filter_pkg_that_can_be_upgraded(depends)
 
-    test_command = "sleep 2; [ $(($RANDOM % 2)) -eq 0 ]"
-
-    try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_depends)
+    try_to_upgrade_dependencies(args.test_command, depends, pkginfo_path, red, red_depends)
 
 
 if __name__ == '__main__':
