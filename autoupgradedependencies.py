@@ -56,8 +56,15 @@ def merge_depends_with_pypi_info(depends):
 
     for key, value in depends.items():
         pkg_name = key.split("[", 1)[0]
+
         print("Get all releases of %s..." % pkg_name)
-        data = requests.get("https://pypi.org/pypi/%s/json" % pkg_name, timeout=30).json()
+        response = requests.get("https://pypi.org/pypi/%s/json" % pkg_name, timeout=30)
+        if response.status_code == 404:
+            print("Warning: %s doesn't exist on pypi, skip it" % pkg_name)
+            continue
+
+        data = response.json()
+
         new_depends[key] = {
             "pkg_name": pkg_name,
             "current_version_scheme": value,
