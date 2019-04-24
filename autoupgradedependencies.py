@@ -131,26 +131,92 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
         entry.value = "'== %s'" % max_possible_value
 
+        print("")
         print("Upgrading %s to %s" % (depend_key, max_possible_value))
         dumps = red.dumps()
         with open(pkginfo_path, "w") as pkginfo_file:
             pkginfo_file.write(dumps)
 
         print("starting test process '%s'..." % test_command)
-        print("=" * len("starting test process '%s'..." % test_command))
+        delimiter = "=" * len("starting test process '%s'..." % test_command)
+        print(delimiter)
         test_process = subprocess.Popen(test_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         for i in test_process.stdout:
             sys.stdout.write(i)
 
         return_code = test_process.wait()
-        print("=" * len("starting test process '%s'..." % test_command))
+        print(delimiter)
 
         if return_code == 0:
             print("Success for upgrading %s to %s!" % (depend_key, max_possible_value))
+
             hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), max_possible_value)
             print(hg_commit_command)
             subprocess.check_call(hg_commit_command, shell=True)
+        elif len(depend_data["possible_upgrades"]) > 1:
+            print("Failure when upgrading %s to %s, switch to version per version strategy" % (depend_key, max_possible_value))
+
+            previous_version = None
+
+            for version in depend_data["possible_upgrades"][:-1]:
+                version = version.vstring
+
+                entry.value = "'== %s'" % version
+                print("")
+                print("trying %s to %s" % (depend_key, version))
+                dumps = red.dumps()
+                with open(pkginfo_path, "w") as pkginfo_file:
+                    pkginfo_file.write(dumps)
+
+                print("starting test process '%s'..." % test_command)
+                delimiter = "=" * len("starting test process '%s'..." % test_command)
+                print(delimiter)
+                test_process = subprocess.Popen(test_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+                for i in test_process.stdout:
+                    sys.stdout.write(i)
+
+                return_code = test_process.wait()
+                print(delimiter)
+
+                if return_code == 0:
+                    print("Success on %s for version %s! Continue to next version" % (depend_key, version))
+                    previous_version = version
+                elif previous_version:
+                    print("Failure when upgrading %s to %s, %s is the maximum upgradable version" % (depend_key, version, previous_version))
+
+                    entry.value = "'== %s'" % previous_version
+
+                    dumps = red.dumps()
+                    with open(pkginfo_path, "w") as pkginfo_file:
+                        pkginfo_file.write(dumps)
+
+                    hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), version)
+                    print(hg_commit_command)
+                    subprocess.check_call(hg_commit_command, shell=True)
+
+                    break
+                else:
+                    print("Failure when upgrading %s to any version, it's not upgradable :(" % (depend_key))
+
+                    entry.value = initial_value
+
+                    dumps = red.dumps()
+                    with open(pkginfo_path, "w") as pkginfo_file:
+                        pkginfo_file.write(dumps)
+
+                    break
+            # we haven't break
+            # yes this python syntaxe is horrible
+            else:
+                print("Actually it's the last compatible versions before the buggy %s" % max_possible_value)
+                # should already be done
+                # change_dependency_version_on_disk(entry, previous_version)
+                hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), version)
+                print(hg_commit_command)
+                subprocess.check_call(hg_commit_command, shell=True)
+
         else:
             print("Failure when upgrading %s to %s, fail back to previous value :(" % (depend_key, max_possible_value))
             entry.value = initial_value
@@ -186,7 +252,7 @@ def main():
 
     depends = filter_pkg_that_can_be_upgraded(depends)
 
-    test_command = "echo pouet"
+    test_command = "sleep 2; [ $(($RANDOM % 2)) -eq 0 ]"
 
     try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_depends)
 
