@@ -135,7 +135,10 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         subprocess.check_call(hg_commit_command, shell=True)
 
     # start with cubes
-    for depend_key, depend_data in filter(lambda x: x[0].startswith("cubicweb-"), depends.items()):
+    cubes = filter(lambda x: x[0].startswith("cubicweb-"), depends.items())
+    not_cubes = filter(lambda x: not x[0].startswith("cubicweb-"), depends.items())
+
+    for depend_key, depend_data in itertools.chain(cubes, not_cubes):
         entry = red_depends.value.filter(lambda x: hasattr(x, "key") and x.key.to_python() == depend_key)[0]
 
         initial_value = entry.value.copy()
