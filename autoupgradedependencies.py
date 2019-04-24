@@ -147,7 +147,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             pkginfo_file.write(dumps)
 
     def hg_commit(key, before, after):
-        hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), max_possible_value)
+        hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (key, before, after)
         print(hg_commit_command)
         subprocess.check_call(hg_commit_command, shell=True)
 
