@@ -81,7 +81,7 @@ def filter_pkg_that_can_be_upgraded(depends):
 
         maximum_version = list(sorted(map(LooseVersion, compatible_versions)))[-1]
         all_versions_sorted = sorted(map(LooseVersion, value["all_versions"]))
-        possible_upgrades = list(itertools.dropwhile(lambda x: x < maximum_version, all_versions_sorted))
+        possible_upgrades = list(itertools.dropwhile(lambda x: x <= maximum_version, all_versions_sorted))
 
         if possible_upgrades:
             print("%s can be upgraded to %s" % (key, ", ".join([x.vstring for x in possible_upgrades])))
