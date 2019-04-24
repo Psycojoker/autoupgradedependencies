@@ -245,9 +245,12 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
 def main():
     parser = argparse.ArgumentParser(description='Auto upgrade a cube dependencies that passes tests.')
-    parser.add_argument('test_command', help='test command to launch, for example "tox -e py27"')
+    parser.add_argument('test_command', help='test command to launch, for example "tox --recreate -e py27"')
 
     args = parser.parse_args()
+
+    if args.test_command.strip().startswith("tox") and "--recreate" not in args.test_command:
+        print("WARNING: if you are using tox you very likely want to put '--recreate' in the command")
 
     path = "."
     path = os.path.realpath(os.path.expanduser(path))
