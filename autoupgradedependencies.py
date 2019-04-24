@@ -5,6 +5,7 @@ import re
 import sys
 import operator
 import itertools
+import subprocess
 
 from distutils.version import LooseVersion
 
@@ -46,7 +47,7 @@ def parse_pkginfo(path):
 
     # oupsi I'm lazy, it's bad :(
     # XXX use to_python() somehow
-    return eval(depends.value.dumps())
+    return eval(depends.value.dumps()), red, depends
 
 
 def merge_depends_with_pypi_info(depends):
@@ -119,6 +120,46 @@ def parse_conditions(conditions):
     return parsed_conditions
 
 
+def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_depends):
+    # start with cubes
+    for depend_key, depend_data in filter(lambda x: x[0].startswith("cubicweb-"), depends.items()):
+        entry = red_depends.value.filter(lambda x: hasattr(x, "key") and x.key.to_python() == depend_key)[0]
+
+        initial_value = entry.value.copy()
+
+        max_possible_value = depend_data["possible_upgrades"][-1].vstring
+
+        entry.value = "'== %s'" % max_possible_value
+
+        print("Upgrading %s to %s" % (depend_key, max_possible_value))
+        dumps = red.dumps()
+        with open(pkginfo_path, "w") as pkginfo_file:
+            pkginfo_file.write(dumps)
+
+        print("starting test process '%s'..." % test_command)
+        print("=" * len("starting test process '%s'..." % test_command))
+        test_process = subprocess.Popen(test_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+        for i in test_process.stdout:
+            sys.stdout.write(i)
+
+        return_code = test_process.wait()
+        print("=" * len("starting test process '%s'..." % test_command))
+
+        if return_code == 0:
+            print("Success for upgrading %s to %s!" % (depend_key, max_possible_value))
+            hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (depend_key, initial_value.to_python(), max_possible_value)
+            print(hg_commit_command)
+            subprocess.check_call(hg_commit_command, shell=True)
+        else:
+            print("Failure when upgrading %s to %s, fail back to previous value :(" % (depend_key, max_possible_value))
+            entry.value = initial_value
+
+            dumps = red.dumps()
+            with open(pkginfo_path, "w") as pkginfo_file:
+                pkginfo_file.write(dumps)
+
+
 def main():
     path = "."
     path = os.path.realpath(os.path.expanduser(path))
@@ -126,7 +167,7 @@ def main():
     pkginfo_path = find_pkginfo(path)
     print("Foudn __pkginfo__.py: %s" % pkginfo_path)
 
-    depends = parse_pkginfo(pkginfo_path)
+    depends, red, red_depends = parse_pkginfo(pkginfo_path)
     cubes = [x for x in depends if x.startswith("cubicweb-")]
 
     print("")
@@ -144,7 +185,10 @@ def main():
     print("")
 
     depends = filter_pkg_that_can_be_upgraded(depends)
-    print(depends)
+
+    test_command = "echo pouet"
+
+    try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_depends)
 
 
 if __name__ == '__main__':
