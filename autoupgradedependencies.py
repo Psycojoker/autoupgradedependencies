@@ -185,6 +185,12 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         # will return return_code
         return test_process.wait(), log_file_name
 
+    def change_cubes_import_if_needed(cube_name, version_metadata):
+        if "url" not in version_metadata:
+            print("Warning: there is no distributions files for %s version %s, I can't check if the cube format has changed" % (version_metadata["version"]))
+
+        from ipdb import set_trace; set_trace()
+
     # start with cubes
     cubes = filter(lambda x: x[0].startswith("cubicweb-"), depends.items())
     not_cubes = filter(lambda x: not x[0].startswith("cubicweb-"), depends.items())
@@ -199,6 +205,8 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
     }
 
     for depend_key, depend_data in itertools.chain(cubes, not_cubes):
+        is_a_cube = depend_key.startswith("cubicweb-")
+
         entry = red_depends.value.filter(lambda x: hasattr(x, "key") and x.key.to_python() == depend_key)[0]
 
         initial_value = entry.value.copy()
@@ -208,6 +216,9 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         print("")
         print("Upgrading %s to %s" % (depend_key, max_possible_value))
         change_dependency_version_on_disk(entry, max_possible_value)
+
+        if is_a_cube:
+            change_cubes_import_if_needed(depend_key, depend_data["possible_upgrades"][-1])
 
         pid, log_file_name = launch_test_command(test_command, depend_key, initial_value.to_python(), max_possible_value)
         if pid == 0:
@@ -225,22 +236,30 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             print("Failure when upgrading %s to %s, switch to version per version strategy" % (depend_key, max_possible_value))
 
             previous_version = None
+            previous_version_metadata = None
 
-            for number, version in enumerate(depend_data["possible_upgrades"][:-1]):
-                version = version["version"]
+            for number, version_metadata in enumerate(depend_data["possible_upgrades"][:-1]):
+                version = version_metadata["version"]
 
                 print("")
                 print("trying %s to %s" % (depend_key, version))
                 change_dependency_version_on_disk(entry, version)
 
+                if is_a_cube:
+                    change_cubes_import_if_needed(depend_key, version_metadata)
+
                 pid, log_file_name = launch_test_command(test_command, depend_key, initial_value.to_python(), version)
                 if pid == 0:
                     print("Success on %s for version %s! Continue to next version" % (depend_key, version))
                     previous_version = version
+                    previous_version_metadata = version_metadata
                 elif previous_version:
                     print("Failure when upgrading %s to %s, %s is the maximum upgradable version" % (depend_key, version, previous_version))
 
                     change_dependency_version_on_disk(entry, previous_version)
+
+                    if is_a_cube:
+                        change_cubes_import_if_needed(depend_key, previous_version_metadata)
 
                     summary["commits"].append(hg_commit(depend_key, initial_value.to_python(), version))
 
