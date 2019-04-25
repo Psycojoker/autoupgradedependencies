@@ -160,6 +160,8 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
         directory = os.path.split(log_file_name)[0]
 
+        log_file_name = os.path.realpath(log_file_name)
+
         if not os.path.exists(directory):
             os.makedirs(directory)
 
@@ -171,13 +173,19 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                                         stderr=subprocess.STDOUT)
 
         # will return return_code
-        return test_process.wait()
+        return test_process.wait(), log_file_name
 
     # start with cubes
     cubes = filter(lambda x: x[0].startswith("cubicweb-"), depends.items())
     not_cubes = filter(lambda x: not x[0].startswith("cubicweb-"), depends.items())
 
     session_start_time = datetime.now().strftime("%F-%X")
+
+    summary = {
+        "full_success": [],
+        "partial_success": [],
+        "total_failure": [],
+    }
 
     for depend_key, depend_data in itertools.chain(cubes, not_cubes):
         entry = red_depends.value.filter(lambda x: hasattr(x, "key") and x.key.to_python() == depend_key)[0]
@@ -190,23 +198,32 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         print("Upgrading %s to %s" % (depend_key, max_possible_value))
         change_dependency_version_on_disk(entry, max_possible_value)
 
-        if launch_test_command(test_command, depend_key, initial_value.to_python(), max_possible_value) == 0:
+        pid, log_file_name = launch_test_command(test_command, depend_key, initial_value.to_python(), max_possible_value)
+        if pid == 0:
             print("Success for upgrading %s to %s!" % (depend_key, max_possible_value))
             hg_commit(depend_key, initial_value.to_python(), max_possible_value)
+
+            summary["full_success"].append({
+                "dependency": depend_key,
+                "from": initial_value.to_python(),
+                "to": max_possible_value,
+                "log_file_name": log_file_name,
+            })
 
         elif len(depend_data["possible_upgrades"]) > 1:
             print("Failure when upgrading %s to %s, switch to version per version strategy" % (depend_key, max_possible_value))
 
             previous_version = None
 
-            for version in depend_data["possible_upgrades"][:-1]:
+            for number, version in enumerate(depend_data["possible_upgrades"][:-1]):
                 version = version.vstring
 
                 print("")
                 print("trying %s to %s" % (depend_key, version))
                 change_dependency_version_on_disk(entry, version)
 
-                if launch_test_command(test_command, depend_key, initial_value.to_python(), version) == 0:
+                pid, log_file_name = launch_test_command(test_command, depend_key, initial_value.to_python(), version)
+                if pid == 0:
                     print("Success on %s for version %s! Continue to next version" % (depend_key, version))
                     previous_version = version
                 elif previous_version:
@@ -215,6 +232,14 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                     change_dependency_version_on_disk(entry, previous_version)
 
                     hg_commit(depend_key, initial_value.to_python(), version)
+
+                    summary["partial_success"].append({
+                        "dependency": depend_key,
+                        "from": initial_value.to_python(),
+                        "to": version,
+                        "log_file_name": log_file_name,
+                        "possible_upgrades": depend_data["possible_upgrades"][number:],
+                    })
 
                     break
                 else:
@@ -226,6 +251,13 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                     with open(pkginfo_path, "w") as pkginfo_file:
                         pkginfo_file.write(dumps)
 
+                    summary["total_failure"].append({
+                        "dependency": depend_key,
+                        "from": initial_value.to_python(),
+                        "log_file_name": log_file_name,
+                        "possible_upgrades": depend_data["possible_upgrades"],
+                    })
+
                     break
             # we haven't break
             # yes this python syntaxe is horrible
@@ -236,6 +268,14 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
                 hg_commit(depend_key, initial_value.to_python(), version)
 
+                summary["partial_success"].append({
+                    "dependency": depend_key,
+                    "from": initial_value.to_python(),
+                    "to": version,
+                    "log_file_name": log_file_name,
+                    "possible_upgrades": depend_data["possible_upgrades"][-1:],
+                })
+
         else:
             print("Failure when upgrading %s to %s, fail back to previous value :(" % (depend_key, max_possible_value))
             entry.value = initial_value
@@ -243,6 +283,46 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             dumps = red.dumps()
             with open(pkginfo_path, "w") as pkginfo_file:
                 pkginfo_file.write(dumps)
+
+            summary["total_failure"].append({
+                "dependency": depend_key,
+                "from": initial_value.to_python(),
+                "log_file_name": log_file_name,
+                "possible_upgrades": [],
+            })
+
+    print("")
+    print("Summary of execution")
+    print("====================")
+
+    if summary["full_success"]:
+        print("")
+        print("Successful upgrade to latest version:")
+
+        for i in summary["full_success"]:
+            print("* %s from '%s' to %s, log: %s" % (i["dependency"], i["from"], i["to"], i["log_file_name"]))
+
+    if summary["partial_success"]:
+        print("")
+        print("Upgraded to a more up to date version but fail to upgrade to the latest one:")
+
+        for i in summary["full_success"]:
+            print("* %s from '%s' to %s, newest versions: %s, log: %s" % (i["dependency"],
+                                                                          i["from"], i["to"],
+                                                                          map(lambda x: x.vstring, i["possible_upgrades"]),
+                                                                          i["log_file_name"]))
+
+    if summary["total_failure"]:
+        print("")
+        print("Totally fail to upgrade to any version")
+
+        for i in summary["total_failure"]:
+            print("* %s, possible upgrades: %s, log: %s" % (i["dependency"], i["from"],
+                                                            map(lambda x: x.vstring, i["possible_upgrades"]),
+                                                            i["log_file_name"]))
+
+    print("")
+    print("All log files are located in %s" % os.path.split(log_file_name)[0])
 
 
 def main():
