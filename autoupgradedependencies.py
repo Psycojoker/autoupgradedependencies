@@ -148,9 +148,12 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             pkginfo_file.write(dumps)
 
     def hg_commit(key, before, after):
-        hg_commit_command = "hg commit -m \"[enh] upgrade %s from '%s' to '== %s'\"" % (key, before, after)
+        commit_message = "[enh] upgrade %s from '%s' to '== %s'" % (key, before, after)
+        hg_commit_command = "hg commit -m \"%s\"" % commit_message
         print(hg_commit_command)
         subprocess.check_call(hg_commit_command, shell=True)
+
+        return commit_message
 
     def launch_test_command(test_command, depend_key, before, after):
         print("starting test process '%s'..." % test_command)
@@ -185,6 +188,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         "full_success": [],
         "partial_success": [],
         "total_failure": [],
+        "commits": [],
     }
 
     for depend_key, depend_data in itertools.chain(cubes, not_cubes):
@@ -201,7 +205,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         pid, log_file_name = launch_test_command(test_command, depend_key, initial_value.to_python(), max_possible_value)
         if pid == 0:
             print("Success for upgrading %s to %s!" % (depend_key, max_possible_value))
-            hg_commit(depend_key, initial_value.to_python(), max_possible_value)
+            summary["commits"].append(hg_commit(depend_key, initial_value.to_python(), max_possible_value))
 
             summary["full_success"].append({
                 "dependency": depend_key,
@@ -231,7 +235,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
                     change_dependency_version_on_disk(entry, previous_version)
 
-                    hg_commit(depend_key, initial_value.to_python(), version)
+                    summary["commits"].append(hg_commit(depend_key, initial_value.to_python(), version))
 
                     summary["partial_success"].append({
                         "dependency": depend_key,
@@ -266,7 +270,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                 # should already be done
                 # change_dependency_version_on_disk(entry, previous_version)
 
-                hg_commit(depend_key, initial_value.to_python(), version)
+                summary["commits"].append(hg_commit(depend_key, initial_value.to_python(), version))
 
                 summary["partial_success"].append({
                     "dependency": depend_key,
@@ -320,6 +324,14 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             print("* %s, possible upgrades: %s, log: %s" % (i["dependency"], i["from"],
                                                             map(lambda x: x.vstring, i["possible_upgrades"]),
                                                             i["log_file_name"]))
+
+    print("")
+    if summary["commits"]:
+        print("Generated commits:")
+        for i in summary["commits"]:
+            print("* %s" % i)
+    else:
+        print("Not commits.")
 
     print("")
     print("All log files are located in %s" % os.path.split(log_file_name)[0])
