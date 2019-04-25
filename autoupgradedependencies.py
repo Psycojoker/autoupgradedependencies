@@ -8,6 +8,7 @@ import argparse
 import itertools
 import subprocess
 
+from datetime import datetime
 from distutils.version import LooseVersion
 
 import requests
@@ -151,9 +152,32 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         print(hg_commit_command)
         subprocess.check_call(hg_commit_command, shell=True)
 
+    def launch_test_command(test_command, depend_key, before, after):
+        print("starting test process '%s'..." % test_command)
+        log_file_name = "autoupgradedependencies/%s/upgrade_%s_from_%s_to_%s.log" % (session_start_time,
+                                                                                     depend_key, before, after)
+        log_file_name = log_file_name.replace(" ", "")
+
+        directory = os.path.split(log_file_name)[0]
+
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        print("logging command output in %s" % log_file_name)
+        test_process = subprocess.Popen(test_command,
+                                        shell=True,
+                                        bufsize=0,
+                                        stdout=open(log_file_name, "w"),
+                                        stderr=subprocess.STDOUT)
+
+        # will return return_code
+        return test_process.wait()
+
     # start with cubes
     cubes = filter(lambda x: x[0].startswith("cubicweb-"), depends.items())
     not_cubes = filter(lambda x: not x[0].startswith("cubicweb-"), depends.items())
+
+    session_start_time = datetime.now().strftime("%F-%X")
 
     for depend_key, depend_data in itertools.chain(cubes, not_cubes):
         entry = red_depends.value.filter(lambda x: hasattr(x, "key") and x.key.to_python() == depend_key)[0]
@@ -166,18 +190,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         print("Upgrading %s to %s" % (depend_key, max_possible_value))
         change_dependency_version_on_disk(entry, max_possible_value)
 
-        print("starting test process '%s'..." % test_command)
-        delimiter = "=" * len("starting test process '%s'..." % test_command)
-        print(delimiter)
-        test_process = subprocess.Popen(test_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
-        for i in test_process.stdout:
-            sys.stdout.write(i)
-
-        return_code = test_process.wait()
-        print(delimiter)
-
-        if return_code == 0:
+        if launch_test_command(test_command, depend_key, initial_value.to_python(), max_possible_value) == 0:
             print("Success for upgrading %s to %s!" % (depend_key, max_possible_value))
             hg_commit(depend_key, initial_value.to_python(), max_possible_value)
 
@@ -193,18 +206,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                 print("trying %s to %s" % (depend_key, version))
                 change_dependency_version_on_disk(entry, version)
 
-                print("starting test process '%s'..." % test_command)
-                delimiter = "=" * len("starting test process '%s'..." % test_command)
-                print(delimiter)
-                test_process = subprocess.Popen(test_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
-                for i in test_process.stdout:
-                    sys.stdout.write(i)
-
-                return_code = test_process.wait()
-                print(delimiter)
-
-                if return_code == 0:
+                if launch_test_command(test_command, depend_key, initial_value.to_python(), version) == 0:
                     print("Success on %s for version %s! Continue to next version" % (depend_key, version))
                     previous_version = version
                 elif previous_version:
