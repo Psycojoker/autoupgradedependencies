@@ -66,10 +66,17 @@ def merge_depends_with_pypi_info(depends):
 
         data = response.json()
 
+        all_versions = []
+
+        for key2, value2 in data["releases"].items():
+            # sometime we don't have metadata information for a release :|
+            all_versions.append(value2[0] if value2 else {})
+            all_versions[-1]["version"] = key2
+
         new_depends[key] = {
             "pkg_name": pkg_name,
             "current_version_scheme": value,
-            "all_versions": data["releases"].keys(),
+            "all_versions": all_versions
         }
 
     return new_depends
@@ -89,11 +96,11 @@ def filter_pkg_that_can_be_upgraded(depends):
         compatible_versions = value["all_versions"]
 
         for (op, version) in conditions:
-            compatible_versions = [x for x in compatible_versions if op(LooseVersion(x), LooseVersion(version))]
+            compatible_versions = [x for x in compatible_versions if op(LooseVersion(x["version"]), LooseVersion(version))]
 
-        maximum_version = list(sorted(map(LooseVersion, compatible_versions)))[-1]
-        all_versions_sorted = sorted(map(LooseVersion, value["all_versions"]))
-        possible_upgrades = list(itertools.dropwhile(lambda x: x <= maximum_version, all_versions_sorted))
+        maximum_version = list(sorted(compatible_versions, key=lambda x: LooseVersion(x["version"])))[-1]
+        all_versions_sorted = sorted(value["all_versions"], key=lambda x: LooseVersion(x["version"]))
+        possible_upgrades = list(itertools.dropwhile(lambda x: LooseVersion(x["version"]) <= LooseVersion(maximum_version["version"]), all_versions_sorted))
 
         if possible_upgrades:
             new_depends[key] = value
@@ -108,7 +115,7 @@ def filter_pkg_that_can_be_upgraded(depends):
         print("")
         print("Packages that can upgrades with all those available verisons:")
         for key, value in new_depends.items():
-            print("* %s (%s) to %s" % (key, value["current_version_scheme"], ", ".join(map(lambda x: x.vstring, value["possible_upgrades"]))))
+            print("* %s (%s) to %s" % (key, value["current_version_scheme"], ", ".join(map(lambda x: x["version"], value["possible_upgrades"]))))
 
     return new_depends
 
@@ -196,7 +203,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
 
         initial_value = entry.value.copy()
 
-        max_possible_value = depend_data["possible_upgrades"][-1].vstring
+        max_possible_value = depend_data["possible_upgrades"][-1]["version"]
 
         print("")
         print("Upgrading %s to %s" % (depend_key, max_possible_value))
@@ -220,7 +227,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             previous_version = None
 
             for number, version in enumerate(depend_data["possible_upgrades"][:-1]):
-                version = version.vstring
+                version = version["version"]
 
                 print("")
                 print("trying %s to %s" % (depend_key, version))
