@@ -254,6 +254,10 @@ def main():
     if args.test_command.strip().startswith("tox") and "--recreate" not in args.test_command:
         print("WARNING: if you are using tox you very likely want to put '--recreate' in the command")
 
+    if subprocess.check_output(["hg", "diff"]) != '':
+        print("ERROR: according to 'hg diff' repository is not clean, abort")
+        sys.exit(1)
+
     path = "."
     path = os.path.realpath(os.path.expanduser(path))
 
