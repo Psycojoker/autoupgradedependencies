@@ -6,6 +6,8 @@ Install
 Usage
 =====
 
+In the folder where the `.hg` is in a classic cube.
+
     autoupgradedependencies "test command"
 
 Examples:
