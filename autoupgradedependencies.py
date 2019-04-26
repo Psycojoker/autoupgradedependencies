@@ -3,6 +3,7 @@
 import os
 import re
 import sys
+import tarfile
 import operator
 import argparse
 import itertools
@@ -14,6 +15,34 @@ from distutils.version import LooseVersion
 import requests
 
 from redbaron import RedBaron
+
+
+def _get_python_files(path="."):
+    python_files = []
+
+    all_hg_files = subprocess.check_output(
+        "hg status -A", shell=True, cwd=path).decode().split("\n")
+    tracked_files = [x.split(" ", 1)[1] for x in all_hg_files if x.startswith("C ")]
+
+    tracked_files = filter(None, tracked_files)
+
+    for file in tracked_files:
+        file = os.path.join(path, file)
+        if file.endswith(".py"):
+            python_files.append(file)
+        elif os.path.isdir(file):
+            continue
+        elif not file.endswith((".pyc", ".css", ".js", ".html")):
+            content = open(file, "r").read()[:300].lower()
+
+            if "# encoding: utf-8" in content:
+                python_files.append(file)
+            elif "#!/usr/bin/env" in content:
+                python_files.append(file)
+            elif "#!/usr/bin/python" in content:
+                python_files.append(file)
+
+    return python_files
 
 
 def find_pkginfo(path):
@@ -189,7 +218,31 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         if "url" not in version_metadata:
             print("Warning: there is no distributions files for %s version %s, I can't check if the cube format has changed" % (version_metadata["version"]))
 
-        from ipdb import set_trace; set_trace()
+        cube_name = cube_name.split("-")[1]
+
+        url = version_metadata["url"]
+
+        archive = tarfile.open(fileobj=requests.get(url, stream=True).raw, mode="r|*")
+
+        directories = [x.name.split("/", 1)[1] for x in archive.getmembers() if x.isdir() and "/" in x.name]
+
+        # this is still the old format
+        if ("cubicweb_%s" % cube_name) not in directories:
+            print("(cube %s is still in old format)" % cube_name)
+            return
+
+        pattern = "from cubes.%s" % cube_name
+
+        # lazy way for now, should use redbaron
+        for python_file in _get_python_files():
+            with open(python_file, "r") as text:
+                text = text.read()
+
+                if pattern in text:
+                    with open(python_file, "w") as to_modify:
+                        print("* change import to new format for cube %s in %s" % (cube_name, python_file))
+                        text = text.replace(pattern, "from cubicweb_%s" % cube_name)
+                        to_modify.write(text)
 
     # start with cubes
     cubes = filter(lambda x: x[0].startswith("cubicweb-"), depends.items())
@@ -235,6 +288,8 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
         elif len(depend_data["possible_upgrades"]) > 1:
             print("Failure when upgrading %s to %s, switch to version per version strategy" % (depend_key, max_possible_value))
 
+            subprocess.check_call("hg revert -a --no-backup", shell=True)
+
             previous_version = None
             previous_version_metadata = None
 
@@ -276,10 +331,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
                     print("Failure when upgrading %s to any version, it's not upgradable :(" % (depend_key))
 
                     entry.value = initial_value
-
-                    dumps = red.dumps()
-                    with open(pkginfo_path, "w") as pkginfo_file:
-                        pkginfo_file.write(dumps)
+                    subprocess.check_call("hg revert -a --no-backup", shell=True)
 
                     summary["total_failure"].append({
                         "dependency": depend_key,
@@ -310,9 +362,7 @@ def try_to_upgrade_dependencies(test_command, depends, pkginfo_path, red, red_de
             print("Failure when upgrading %s to %s, fail back to previous value :(" % (depend_key, max_possible_value))
             entry.value = initial_value
 
-            dumps = red.dumps()
-            with open(pkginfo_path, "w") as pkginfo_file:
-                pkginfo_file.write(dumps)
+            subprocess.check_call("hg revert -a --no-backup", shell=True)
 
             summary["total_failure"].append({
                 "dependency": depend_key,
